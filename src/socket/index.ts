@@ -103,7 +103,7 @@ export const initSocketServer = (httpServer: http.Server) => {
         // Get student info for each session
         const sessionsWithStudentInfo = await Promise.all(
           activeSessions.map(async (session) => {
-            const student = await databaseService.users.findOne({ _id: session.student_id })
+            const student = await databaseService.users.findOne({ _id: new ObjectId(session.student_id) })
 
             return {
               session_id: session._id.toString(),
@@ -572,7 +572,7 @@ export const initSocketServer = (httpServer: http.Server) => {
         const activeStudents = []
         for (const session of sessions) {
           if (activeExams.has(session._id.toString())) {
-            const student = await databaseService.users.findOne({ _id: session.student_id })
+            const student = await databaseService.users.findOne({ _id: new ObjectId(session.student_id) })
             activeStudents.push({
               session_id: session._id.toString(),
               student_id: session.student_id.toString(),
@@ -627,7 +627,7 @@ export const initSocketServer = (httpServer: http.Server) => {
         // Get student info for each session
         const sessionsWithInfo = await Promise.all(
           activeSessions.map(async (session) => {
-            const student = await databaseService.users.findOne({ _id: session.student_id })
+            const student = await databaseService.users.findOne({ _id: new ObjectId(session.student_id) })
             const exam = examsMap.get(session.exam_id.toString())
 
             return {
@@ -658,7 +658,7 @@ export const initSocketServer = (httpServer: http.Server) => {
             const session = activeSessions.find((s) => s._id.toString() === violation.session_id?.toString())
             if (!session) return null
 
-            const student = await databaseService.users.findOne({ _id: session.student_id })
+            const student = await databaseService.users.findOne({ _id: new ObjectId(session.student_id) })
             const exam = examsMap.get(session.exam_id.toString())
 
             return {
@@ -728,7 +728,7 @@ export const initSocketServer = (httpServer: http.Server) => {
         // Get student info for each session
         const sessionsWithStudentInfo = await Promise.all(
           activeSessions.map(async (session) => {
-            const student = await databaseService.users.findOne({ _id: session.student_id })
+            const student = await databaseService.users.findOne({ _id: new ObjectId(session.student_id) })
 
             return {
               session_id: session._id.toString(),
@@ -808,7 +808,7 @@ export const initSocketServer = (httpServer: http.Server) => {
           const sessionId = session._id.toString()
 
           if (activeExams.has(sessionId)) {
-            const student = await databaseService.users.findOne({ _id: session.student_id })
+            const student = await databaseService.users.findOne({ _id: new ObjectId(session.student_id) })
             activeSessions.push({
               session_id: sessionId,
               student_id: session.student_id.toString(),
