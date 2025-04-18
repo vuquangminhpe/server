@@ -255,41 +255,6 @@ export const getClassExamResultsController = async (req: Request, res: Response)
   }
 }
 
-// Controller to get student violations
-export const getStudentViolationsController = async (req: Request, res: Response) => {
-  const { exam_id, student_id } = req.params
-  const { user_id } = req.decode_authorization as TokenPayload
-
-  try {
-    // Verify the exam belongs to the current teacher
-    const exam = await examService.getExamById(exam_id)
-    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
-
-    if (!exam) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: 'Exam not found'
-      })
-    }
-
-    if (exam.teacher_id.toString() !== user_id && user?.role !== UserRole.Teacher) {
-      return res.status(HTTP_STATUS.FORBIDDEN).json({
-        message: 'Not authorized to view violations for this exam'
-      })
-    }
-
-    const violations = await examService.getStudentViolations(exam_id, student_id)
-
-    res.json({
-      message: 'Student violations retrieved successfully',
-      result: violations
-    })
-  } catch (error) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-      message: 'Failed to retrieve student violations',
-      error: error
-    })
-  }
-}
 export const createMasterExamController = async (req: Request, res: Response) => {
   const { name, description, exam_period, start_time, end_time } = req.body
   const { user_id } = req.decode_authorization as TokenPayload
@@ -437,6 +402,125 @@ export const getClassesForMasterExamController = async (req: Request, res: Respo
   } catch (error) {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       message: 'Failed to retrieve classes',
+      error: error
+    })
+  }
+}
+
+export const getClassExamResultsForMasterExamController = async (req: Request, res: Response) => {
+  const { master_exam_id, className } = req.params
+  const { search_term, violation_types, page, limit } = req.query
+  const { user_id } = req.decode_authorization as TokenPayload
+
+  try {
+    // Verify the master exam exists and belongs to this teacher
+    const masterExam = await examService.getMasterExamById(master_exam_id)
+    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+    if (!masterExam) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        message: 'Master exam not found'
+      })
+    }
+
+    if (masterExam.teacher_id.toString() !== user_id && user?.role !== UserRole.Teacher) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        message: 'Not authorized to view results for this master exam'
+      })
+    }
+
+    // Parse filters
+    const filters: any = {}
+
+    if (search_term) {
+      filters.searchTerm = search_term as string
+    }
+
+    if (violation_types) {
+      if (Array.isArray(violation_types)) {
+        filters.violationTypes = violation_types
+      } else {
+        filters.violationTypes = (violation_types as string).split(',')
+      }
+    }
+
+    if (page) {
+      filters.page = parseInt(page as string)
+    }
+
+    if (limit) {
+      filters.limit = parseInt(limit as string)
+    }
+
+    // Add class filter
+    const decodedClassName = decodeURIComponent(className)
+
+    const results = await examService.getClassExamResultsForMasterExam(master_exam_id, decodedClassName, filters)
+
+    res.json({
+      message: 'Class exam results for master exam retrieved successfully',
+      result: results
+    })
+  } catch (error) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      message: 'Failed to retrieve class exam results for master exam',
+      error: error
+    })
+  }
+}
+export const getStudentViolationsController = async (req: Request, res: Response) => {
+  const { exam_id, student_id } = req.params
+  const { user_id } = req.decode_authorization as TokenPayload
+
+  try {
+    // First try to find as a regular exam
+    const exam = await examService.getExamById(exam_id)
+    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+    if (exam) {
+      // This is a regular exam
+      // Check if the user has permission
+      if (exam.teacher_id.toString() !== user_id && user?.role !== UserRole.Teacher) {
+        return res.status(HTTP_STATUS.FORBIDDEN).json({
+          message: 'Not authorized to view violations for this exam'
+        })
+      }
+
+      // Get violations for a regular exam
+      const violations = await examService.getStudentViolations(exam_id, student_id)
+
+      return res.json({
+        message: 'Student violations retrieved successfully',
+        result: violations
+      })
+    }
+
+    // If not a regular exam, check if it's a master exam
+    const masterExam = await examService.getMasterExamById(exam_id)
+
+    if (!masterExam) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        message: 'Exam or Master exam not found'
+      })
+    }
+
+    // Check permissions for master exam
+    if (masterExam.teacher_id.toString() !== user_id && user?.role !== UserRole.Teacher) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        message: 'Not authorized to view violations for this master exam'
+      })
+    }
+
+    // Get violations for all exams in this master exam
+    const violations = await examService.getStudentViolationsForMasterExam(exam_id, student_id)
+
+    return res.json({
+      message: 'Student violations retrieved successfully',
+      result: violations
+    })
+  } catch (error) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      message: 'Failed to retrieve student violations',
       error: error
     })
   }

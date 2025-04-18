@@ -501,6 +501,152 @@ class ExamService {
       student_count: students.filter((student) => student.class === className).length
     }))
   }
+  async getClassExamResultsForMasterExam(
+    masterExamId: string,
+    className: string,
+    filters?: {
+      searchTerm?: string
+      violationTypes?: string[]
+      page?: number
+      limit?: number
+    }
+  ) {
+    try {
+      // First get all exams for this master exam
+      const exams = await this.getExamsByMasterExamId(masterExamId)
+
+      if (!exams.length) {
+        return []
+      }
+
+      const examIds = exams.map((exam) => exam._id)
+
+      // Get all students in the specified class
+      const studentsInClass = await databaseService.users.find({ class: className }).toArray()
+
+      if (!studentsInClass.length) {
+        return []
+      }
+
+      const studentIds = studentsInClass.map((student) => student._id)
+
+      // Base query to get all sessions for these exams and students
+      let query: any = {
+        exam_id: { $in: examIds },
+        student_id: { $in: studentIds }
+      }
+
+      // Add search filter if provided
+      if (filters?.searchTerm) {
+        // First get student IDs matching the search term
+        const matchingStudents = await databaseService.users
+          .find({
+            class: className,
+            $or: [
+              { name: { $regex: filters.searchTerm, $options: 'i' } },
+              { username: { $regex: filters.searchTerm, $options: 'i' } }
+            ]
+          })
+          .toArray()
+
+        const matchingStudentIds = matchingStudents.map((student) => student._id)
+
+        // Update student IDs in the query to include only matching students
+        query.student_id = { $in: matchingStudentIds }
+      }
+
+      // Handle violation type filter if provided
+      if (filters?.violationTypes && filters.violationTypes.length > 0) {
+        // We'll need to join with the violations collection
+        // This requires an aggregation pipeline
+        const sessions = await databaseService.examSessions
+          .aggregate([
+            { $match: query },
+            {
+              $lookup: {
+                from: 'exam_violations',
+                localField: '_id',
+                foreignField: 'session_id',
+                as: 'violations'
+              }
+            },
+            {
+              $match: {
+                'violations.type': { $in: filters.violationTypes }
+              }
+            }
+          ])
+          .toArray()
+
+        // Create a map of examId -> exam for quick lookup
+        const examMap = new Map(exams.map((exam) => [exam._id.toString(), exam]))
+
+        return await this.enrichSessionsWithStudentInfo(sessions, examMap)
+      }
+
+      // Simple query without violation type filter
+      const sessions = await databaseService.examSessions
+        .find(query)
+        .skip((filters?.page || 0) * (filters?.limit || 0))
+        .limit(filters?.limit || 0)
+        .toArray()
+
+      // Create a map of examId -> exam for quick lookup
+      const examMap = new Map(exams.map((exam) => [exam._id.toString(), exam]))
+
+      return await this.enrichSessionsWithStudentInfo(sessions, examMap)
+    } catch (error) {
+      console.error('Error getting class exam results for master exam:', error)
+      throw error
+    }
+  }
+  async getStudentViolationsForMasterExam(masterExamId: string, studentId: string) {
+    try {
+      // Get all exams for this master exam
+      const exams = await this.getExamsByMasterExamId(masterExamId)
+
+      if (!exams.length) {
+        return []
+      }
+
+      const examIds = exams.map((exam) => exam._id)
+
+      // Find all sessions for these exams and this student
+      const sessions = await databaseService.examSessions
+        .find({
+          exam_id: { $in: examIds },
+          student_id: new ObjectId(studentId)
+        })
+        .toArray()
+
+      if (!sessions.length) {
+        return []
+      }
+
+      const sessionIds = sessions.map((session) => session._id)
+
+      // Get all violations for these sessions
+      const violations = await databaseService.db
+        .collection('exam_violations')
+        .find({ session_id: { $in: sessionIds } })
+        .sort({ timestamp: -1 })
+        .toArray()
+
+      // Format violations to ensure they're properly serialized
+      return violations.map((violation) => ({
+        _id: violation._id.toString(),
+        session_id: violation.session_id.toString(),
+        student_id: violation.student_id.toString(),
+        type: violation.type,
+        severity: violation.severity,
+        details: violation.details,
+        timestamp: violation.timestamp
+      }))
+    } catch (error) {
+      console.error('Error getting student violations for master exam:', error)
+      throw error
+    }
+  }
 }
 
 const examService = new ExamService()

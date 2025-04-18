@@ -12,7 +12,8 @@ import {
   getMasterExamsController,
   getMasterExamByIdController,
   getExamsByMasterExamIdController,
-  getClassesForMasterExamController
+  getClassesForMasterExamController,
+  getClassExamResultsForMasterExamController
 } from '../controllers/exams.controllers'
 import {
   startExamController,
@@ -59,5 +60,10 @@ examsRouter.get(
   '/idea/master/:master_exam_id/classes',
   teacherRoleValidator,
   wrapAsync(getClassesForMasterExamController)
+)
+examsRouter.get(
+  '/idea/master/:master_exam_id/classes/:className/results',
+  teacherRoleValidator,
+  wrapAsync(getClassExamResultsForMasterExamController)
 )
 export default examsRouter
