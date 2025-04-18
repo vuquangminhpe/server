@@ -314,8 +314,6 @@ class ExamService {
 
       // Add violation type filter if provided
       if (filters?.violationTypes && filters.violationTypes.length > 0) {
-        // We'll need to join with the violations collection
-        // This requires an aggregation pipeline
         const sessions = await databaseService.examSessions
           .aggregate([
             { $match: query },
@@ -411,7 +409,7 @@ class ExamService {
       // Get all violations for this session
       const violations = await databaseService.db
         .collection('exam_violations')
-        .find({ session_id: session._id })
+        .find({ session_id: new ObjectId(session._id) })
         .sort({ timestamp: -1 })
         .toArray()
 
