@@ -530,11 +530,23 @@ class ExamService {
 
       const studentIds = studentsInClass.map((student) => student._id)
 
-      // Base query to get all sessions for these exams and students
-      let query: any = {
-        exam_id: { $in: examIds },
-        student_id: { $in: studentIds }
-      }
+      // Khởi tạo pipeline cho aggregation
+      const pipeline: any[] = [
+        {
+          $match: {
+            exam_id: { $in: examIds },
+            student_id: { $in: studentIds }
+          }
+        },
+        {
+          $lookup: {
+            from: 'exam_violations',
+            localField: '_id',
+            foreignField: 'session_id',
+            as: 'violations'
+          }
+        }
+      ]
 
       // Add search filter if provided
       if (filters?.searchTerm) {
@@ -551,45 +563,54 @@ class ExamService {
 
         const matchingStudentIds = matchingStudents.map((student) => student._id)
 
-        // Update student IDs in the query to include only matching students
-        query.student_id = { $in: matchingStudentIds }
+        // Update matching in pipeline
+        pipeline[0].$match.student_id = { $in: matchingStudentIds }
       }
 
       // Handle violation type filter if provided
-      if (filters?.violationTypes && filters.violationTypes.length > 0) {
-        // We'll need to join with the violations collection
-        // This requires an aggregation pipeline
-        const sessions = await databaseService.examSessions
-          .aggregate([
-            { $match: query },
-            {
-              $lookup: {
-                from: 'exam_violations',
-                localField: '_id',
-                foreignField: 'session_id',
-                as: 'violations'
-              }
-            },
-            {
-              $match: {
-                'violations.type': { $in: filters.violationTypes }
+      if (filters?.violationTypes && filters?.violationTypes.length > 0) {
+        // When filtering students by violation type, use the same filter for counting violations
+        pipeline.push(
+          {
+            $addFields: {
+              // Only count violations that match the specified types
+              filteredViolations: {
+                $filter: {
+                  input: '$violations',
+                  as: 'violation',
+                  cond: { $in: ['$$violation.type', filters.violationTypes] }
+                }
               }
             }
-          ])
-          .toArray()
+          },
+          {
+            $addFields: {
+              // Use the filtered violations count instead of the total violations count
+              violations_count: { $size: '$filteredViolations' }
+            }
+          }
+        )
 
-        // Create a map of examId -> exam for quick lookup
-        const examMap = new Map(exams.map((exam) => [exam._id.toString(), exam]))
+        // Filter out students who have no violations of the specified types
+        pipeline.push({
+          $match: { violations_count: { $gt: 0 } }
+        })
 
-        return await this.enrichSessionsWithStudentInfo(sessions, examMap)
+        // Keep the filtered violations but maintain the original structure
+        pipeline.push({
+          $addFields: {
+            violations: '$filteredViolations'
+          }
+        })
       }
 
-      // Simple query without violation type filter
-      const sessions = await databaseService.examSessions
-        .find(query)
-        .skip((filters?.page || 0) * (filters?.limit || 0))
-        .limit(filters?.limit || 0)
-        .toArray()
+      // Add pagination if needed
+      if (filters?.page !== undefined && filters?.limit) {
+        pipeline.push({ $skip: filters.page * filters.limit }, { $limit: filters.limit })
+      }
+
+      // Execute the aggregation pipeline
+      const sessions = await databaseService.examSessions.aggregate(pipeline).toArray()
 
       // Create a map of examId -> exam for quick lookup
       const examMap = new Map(exams.map((exam) => [exam._id.toString(), exam]))
