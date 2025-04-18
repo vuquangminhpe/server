@@ -189,7 +189,8 @@ class UserService {
         name: userInfo.name,
         date_of_birth: new Date().toISOString(),
         password,
-        confirm_password: password
+        confirm_password: password,
+        class: '1'
       })
       return {
         ...data,

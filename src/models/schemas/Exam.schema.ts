@@ -6,10 +6,11 @@ interface ExamType {
   exam_code: string
   teacher_id: ObjectId
   question_ids: ObjectId[]
-  duration: number // in minutes
-  start_time?: Date // New field for scheduled start time
+  duration: number
+  start_time?: Date
   created_at?: Date
   active?: boolean
+  master_exam_id?: ObjectId
 }
 
 export default class Exam {
@@ -19,11 +20,23 @@ export default class Exam {
   teacher_id: ObjectId
   question_ids: ObjectId[]
   duration: number
-  start_time?: Date // New field for scheduled start time
+  start_time?: Date
   created_at: Date
   active: boolean
+  master_exam_id?: ObjectId
 
-  constructor({ _id, title, exam_code, teacher_id, question_ids, duration, start_time, created_at, active }: ExamType) {
+  constructor({
+    _id,
+    title,
+    exam_code,
+    teacher_id,
+    question_ids,
+    duration,
+    start_time,
+    created_at,
+    active,
+    master_exam_id
+  }: ExamType) {
     const date = new Date()
     this._id = _id
     this.title = title
@@ -34,5 +47,6 @@ export default class Exam {
     this.start_time = start_time
     this.created_at = created_at || date
     this.active = active !== undefined ? active : true
+    this.master_exam_id = master_exam_id
   }
 }

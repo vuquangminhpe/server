@@ -5,7 +5,14 @@ import {
   getExamByIdController,
   getExamResultsController,
   getExamStatisticsController,
-  updateExamStatusController
+  updateExamStatusController,
+  getStudentViolationsController,
+  getClassExamResultsController,
+  createMasterExamController,
+  getMasterExamsController,
+  getMasterExamByIdController,
+  getExamsByMasterExamIdController,
+  getClassesForMasterExamController
 } from '../controllers/exams.controllers'
 import {
   startExamController,
@@ -35,5 +42,22 @@ examsRouter.get('/:exam_id/statistics', teacherRoleValidator, wrapAsync(getExamS
 examsRouter.post('/start', startExamValidator, wrapAsync(startExamController))
 examsRouter.post('/submit', submitExamValidator, wrapAsync(submitExamController))
 examsRouter.get('/history', wrapAsync(getExamHistoryController))
+examsRouter.get('/:exam_id/class-results', teacherRoleValidator, wrapAsync(getClassExamResultsController))
 
+// Student violations route
+examsRouter.get(
+  '/:exam_id/students/:student_id/violations',
+  teacherRoleValidator,
+  wrapAsync(getStudentViolationsController)
+)
+
+examsRouter.post('/idea/master', teacherRoleValidator, wrapAsync(createMasterExamController))
+examsRouter.get('/idea/master', teacherRoleValidator, wrapAsync(getMasterExamsController))
+examsRouter.get('/idea/master/:master_exam_id', teacherRoleValidator, wrapAsync(getMasterExamByIdController))
+examsRouter.get('/idea/master/:master_exam_id/exams', teacherRoleValidator, wrapAsync(getExamsByMasterExamIdController))
+examsRouter.get(
+  '/idea/master/:master_exam_id/classes',
+  teacherRoleValidator,
+  wrapAsync(getClassesForMasterExamController)
+)
 export default examsRouter

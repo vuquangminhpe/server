@@ -18,8 +18,10 @@ export default class UserType {
   forgot_password_token?: string
   verify?: UserVerifyStatus
   role: UserRole // Add this field
+  name: string
   username?: string
   avatar?: string
+  class: string
 
   constructor(user: UserType) {
     // Existing initialization
@@ -34,5 +36,7 @@ export default class UserType {
     this.role = user.role || UserRole.Student
     this.username = user.username || ''
     this.avatar = user.avatar || ''
+    this.name = user.name || ''
+    this.class = user.class || ''
   }
 }

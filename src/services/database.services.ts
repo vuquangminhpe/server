@@ -7,6 +7,7 @@ import { envConfig } from '../constants/config'
 import Question from '../models/schemas/Question.schema'
 import Exam from '../models/schemas/Exam.schema'
 import ExamSession from '../models/schemas/ExamSession.schema'
+import MasterExam from '../models/schemas/MasterExam.schema'
 
 const uri = envConfig.mongodb_url
 const dbName = envConfig.db_name
@@ -83,6 +84,9 @@ class DatabaseService {
 
   get examSessions(): Collection<ExamSession> {
     return this.db.collection('exam_sessions')
+  }
+  get masterExams(): Collection<MasterExam> {
+    return this.db.collection('master_exams')
   }
 }
 

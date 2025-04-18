@@ -33,6 +33,7 @@ export interface RegisterReqBody {
   password: string
   confirm_password: string
   date_of_birth: string
+  class: string
 }
 export interface LogoutReqBody {
   refresh_token: string
