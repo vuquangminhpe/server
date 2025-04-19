@@ -4,7 +4,7 @@ import questionService from '../services/questions.services'
 import { TokenPayload } from '../models/request/User.request'
 
 export const createQuestionController = async (req: Request, res: Response) => {
-  const { content, answers, correct_index } = req.body
+  const { content, answers, correct_index, master_exam_id } = req.body
   const { user_id } = req.decode_authorization as TokenPayload as TokenPayload
 
   try {
@@ -12,7 +12,8 @@ export const createQuestionController = async (req: Request, res: Response) => {
       content,
       answers,
       correct_index,
-      teacher_id: user_id
+      teacher_id: user_id,
+      master_exam_id
     })
 
     res.json({
@@ -29,9 +30,11 @@ export const createQuestionController = async (req: Request, res: Response) => {
 
 export const getQuestionsController = async (req: Request, res: Response) => {
   const { user_id } = req.decode_authorization as TokenPayload
+  const { master_exam_id } = req.body
+  console.log('getQuestionsController', user_id, master_exam_id)
 
   try {
-    const questions = await questionService.getQuestionsByTeacher(user_id)
+    const questions = await questionService.getQuestionsByTeacher(user_id, master_exam_id?.toString())
 
     res.json({
       message: 'Questions retrieved successfully',
@@ -118,6 +121,23 @@ export const deleteQuestionController = async (req: Request, res: Response) => {
   } catch (error) {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       message: 'Failed to delete question',
+      error: error
+    })
+  }
+}
+export const DeleteAllQuestionWithTeacher = async (req: Request, res: Response) => {
+  const { user_id } = req.decode_authorization as TokenPayload
+
+  try {
+    const result = await questionService.DeleteAllQuestions(user_id)
+
+    res.json({
+      message: 'All questions deleted successfully',
+      result: result
+    })
+  } catch (error) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      message: 'Failed to delete all questions',
       error: error
     })
   }

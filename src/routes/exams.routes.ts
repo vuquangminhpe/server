@@ -66,4 +66,5 @@ examsRouter.get(
   teacherRoleValidator,
   wrapAsync(getClassExamResultsForMasterExamController)
 )
+
 export default examsRouter
