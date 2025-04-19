@@ -5,6 +5,7 @@ import Exam from '../models/schemas/Exam.schema'
 import questionService from './questions.services'
 import QRCode from 'qrcode'
 import MasterExam from '../models/schemas/MasterExam.schema'
+import { UserRole } from '../models/schemas/User.schema'
 
 class ExamService {
   // Generate a unique exam code
@@ -440,6 +441,7 @@ class ExamService {
       exam_period,
       start_time,
       end_time,
+      active: true,
       teacher_id: new ObjectId(teacher_id)
     })
 
@@ -663,6 +665,196 @@ class ExamService {
       }))
     } catch (error) {
       console.error('Error getting student violations for master exam:', error)
+      throw error
+    }
+  }
+  async checkExpiredExams() {
+    try {
+      const currentTime = new Date()
+
+      // Find all active exams that should be checked
+      const exams = await databaseService.exams
+        .find({
+          active: true,
+          start_time: { $exists: true }
+        })
+        .toArray()
+
+      let expiredCount = 0
+
+      for (const exam of exams) {
+        if (!exam.start_time) continue
+
+        // Calculate end time (start_time + duration in minutes)
+        const endTime = new Date(exam.start_time)
+        endTime.setMinutes(endTime.getMinutes() + exam.duration)
+
+        // If end time is in the past, mark as expired (inactive)
+        if (endTime < currentTime) {
+          await databaseService.exams.updateOne({ _id: exam._id }, { $set: { active: false } })
+          expiredCount++
+        }
+      }
+
+      console.log(`Auto-expire check completed. ${expiredCount} exams marked as expired.`)
+      return expiredCount
+    } catch (error) {
+      console.error('Error checking for expired exams:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Toggle master exam status and cascade to child exams
+   */
+  async toggleMasterExamStatus(masterExamId: string, active: boolean) {
+    try {
+      // Update master exam status
+      const result = await databaseService.masterExams.findOneAndUpdate(
+        { _id: new ObjectId(masterExamId) },
+        { $set: { active } },
+        { returnDocument: 'after' }
+      )
+
+      if (!result) {
+        throw new Error('Master exam not found')
+      }
+
+      // Update all child exams
+      await databaseService.exams.updateMany({ master_exam_id: new ObjectId(masterExamId) }, { $set: { active } })
+
+      return result
+    } catch (error) {
+      console.error('Error toggling master exam status:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Delete master exam with restrictions
+   */
+  async deleteMasterExam(masterExamId: string, userId: string) {
+    try {
+      // Verify the master exam exists
+      const masterExam = await databaseService.masterExams.findOne({
+        _id: new ObjectId(masterExamId)
+      })
+
+      if (!masterExam) {
+        throw new Error('Master exam not found')
+      }
+
+      // Check ownership
+      if (masterExam.teacher_id.toString() !== userId) {
+        const user = await databaseService.users.findOne({ _id: new ObjectId(userId) })
+        if (user?.role !== UserRole.Admin) {
+          throw new Error('Not authorized to delete this master exam')
+        }
+      }
+
+      // Check if start time is in the future
+      if (masterExam.start_time && new Date(masterExam.start_time) <= new Date()) {
+        throw new Error('Cannot delete: Exam has already started')
+      }
+
+      // Check if master exam is active
+      if (masterExam.active) {
+        throw new Error('Cannot delete: Master exam is active')
+      }
+
+      // Delete child exams first
+      await databaseService.exams.deleteMany({
+        master_exam_id: new ObjectId(masterExamId)
+      })
+
+      // Delete master exam
+      await databaseService.masterExams.deleteOne({
+        _id: new ObjectId(masterExamId)
+      })
+
+      return { message: 'Master exam deleted successfully' }
+    } catch (error) {
+      console.error('Error deleting master exam:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Get master exam with status of child exams
+   */
+  async getMasterExamsWithStatus(teacherId: string) {
+    try {
+      const masterExams = await databaseService.masterExams
+        .find({ teacher_id: new ObjectId(teacherId) })
+        .sort({ created_at: -1 })
+        .toArray()
+
+      // Enhance master exams with status information
+      const enhancedMasterExams = await Promise.all(
+        masterExams.map(async (masterExam) => {
+          // Get all child exams for this master exam
+          const exams = await databaseService.exams.find({ master_exam_id: masterExam._id }).toArray()
+
+          // Calculate exam status summary
+          const examStatus = {
+            total: exams.length,
+            active: exams.filter((exam) => exam.active).length
+          }
+
+          return {
+            ...masterExam,
+            examStatus
+          }
+        })
+      )
+
+      return enhancedMasterExams
+    } catch (error) {
+      console.error('Error getting master exams with status:', error)
+      throw error
+    }
+  }
+  async getMasterExamWithExams(masterExamId: string) {
+    try {
+      const masterExam = await databaseService.masterExams.findOne({
+        _id: new ObjectId(masterExamId)
+      })
+
+      if (!masterExam) {
+        throw new Error('Master exam not found')
+      }
+
+      // Get all child exams
+      const exams = await databaseService.exams
+        .find({
+          master_exam_id: new ObjectId(masterExamId)
+        })
+        .sort({ created_at: -1 })
+        .toArray()
+
+      // Check each exam for expiration
+      const currentTime = new Date()
+      const examsWithExpiredStatus = exams.map((exam) => {
+        let expired = false
+
+        if (exam.start_time) {
+          const endTime = new Date(exam.start_time)
+          endTime.setMinutes(endTime.getMinutes() + exam.duration)
+          expired = endTime < currentTime
+        }
+
+        return {
+          ...exam,
+          expired
+        }
+      })
+
+      return {
+        ...masterExam,
+        exams: examsWithExpiredStatus
+      }
+    } catch (error) {
+      console.error('Error getting master exam with exams:', error)
       throw error
     }
   }

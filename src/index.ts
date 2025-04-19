@@ -17,11 +17,13 @@ import { envConfig, isProduction } from './constants/config'
 import adminRouter from './routes/admin.routes'
 import apiRouter from './routes'
 import geminiRoutes from './routes/gemini.routes'
+import { startExamExpirationScheduler } from './services/examScheduler/examScheduler'
 config()
 databaseService
   .connect()
   .then(() => {
     databaseService.indexVideoStatus()
+    startExamExpirationScheduler()
   })
   .catch()
 // const limiter = rateLimit({

@@ -13,7 +13,11 @@ import {
   getMasterExamByIdController,
   getExamsByMasterExamIdController,
   getClassesForMasterExamController,
-  getClassExamResultsForMasterExamController
+  getClassExamResultsForMasterExamController,
+  getMasterExamsWithStatusController,
+  getMasterExamWithExamsController,
+  toggleMasterExamStatusController,
+  deleteMasterExamController
 } from '../controllers/exams.controllers'
 import {
   startExamController,
@@ -66,5 +70,14 @@ examsRouter.get(
   teacherRoleValidator,
   wrapAsync(getClassExamResultsForMasterExamController)
 )
+examsRouter.get('/idea/master', teacherRoleValidator, wrapAsync(getMasterExamsWithStatusController))
+examsRouter.get('/idea/master/:master_exam_id', teacherRoleValidator, wrapAsync(getMasterExamWithExamsController))
 
+// Add new routes for master exam management
+examsRouter.put(
+  '/idea/master/:master_exam_id/toggle-status',
+  teacherRoleValidator,
+  wrapAsync(toggleMasterExamStatusController)
+)
+examsRouter.delete('/idea/master/:master_exam_id', teacherRoleValidator, wrapAsync(deleteMasterExamController))
 export default examsRouter

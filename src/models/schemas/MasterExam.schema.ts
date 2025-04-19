@@ -6,6 +6,7 @@ interface MasterExamType {
   description?: string
   exam_period?: string
   start_time?: Date
+  active: boolean
   end_time?: Date
   teacher_id: ObjectId
   created_at?: Date
@@ -20,6 +21,7 @@ export default class MasterExam {
   start_time?: Date
   end_time?: Date
   teacher_id: ObjectId
+  active: boolean
   created_at: Date
   updated_at: Date
 
@@ -31,6 +33,7 @@ export default class MasterExam {
     start_time,
     end_time,
     teacher_id,
+    active,
     created_at,
     updated_at
   }: MasterExamType) {
@@ -41,6 +44,7 @@ export default class MasterExam {
     this.exam_period = exam_period
     this.start_time = start_time
     this.end_time = end_time
+    this.active = active || true
     this.teacher_id = teacher_id
     this.created_at = created_at || date
     this.updated_at = updated_at || date

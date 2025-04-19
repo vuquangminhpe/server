@@ -3,21 +3,25 @@ import databaseService from './database.services'
 import ExamSession from '../models/schemas/ExamSession.schema'
 
 // New schema for device information
-interface DeviceInfo {
-  session_id: ObjectId
-  student_id: ObjectId
-  fingerprint: string
-  userAgent: string
-  screenResolution: string
-  availableScreenSize: string
-  timezone: string
-  language: string
-  platform: string
-  cores: number
-  ip_address: string
-  created_at: Date
+interface RemoteAccessData {
+  processNames?: string[]
+  networkInterfaces?: any[] // Thông tin về network interfaces
+  performanceMetrics?: any // Các chỉ số về hiệu suất
+  screenSharingActive?: boolean // Có đang chia sẻ màn hình không
+  windowProperties?: any // Các thuộc tính cửa sổ trình duyệt bất thường
+  userAgentData?: any // Chi tiết về user agent
+  plugins?: any[] // Các plugin trình duyệt đáng ngờ
+  inputPatterns?: any // Các mẫu nhập liệu bất thường
+  webRTCData?: any // Dữ liệu từ WebRTC có thể tiết lộ kết nối
+  virtualDeviceSignatures?: string[] // Dấu hiệu máy ảo hoặc thiết bị giả lập
+  timestamp: Date
 }
-
+interface RemoteAccessDetectionResult {
+  detected: boolean
+  score: number
+  details: any
+  severity: 'low' | 'medium' | 'high'
+}
 // New schema for violations
 interface ViolationRecord {
   session_id: ObjectId
@@ -29,6 +33,45 @@ interface ViolationRecord {
 }
 
 class ExamSecurityService {
+  private remoteAccessSoftwarePatterns = [
+    'ultraview',
+    'ultraviewer',
+    'ultra viewer',
+    'uv_',
+    'ultravnc',
+    'teamviewer',
+    'anydesk',
+    'ammyy',
+    'radmin',
+    'logmein',
+    'vnc',
+    'tightvnc',
+    'realvnc',
+    'remote desktop',
+    'chrome remote',
+    'microsoft remote',
+    'msrdp',
+    'rdp',
+    'remote utilities',
+    'supremo',
+    'joinme',
+    'screenconnect',
+    'connectwise control',
+    'zoho assist',
+    'remotepc',
+    'splashtop',
+    'gotomypc',
+    'pcnow',
+    'airdroid',
+    'aeroadmin',
+    'screen sharing',
+    'desktop sharing',
+    'remote support',
+    'remotedesktop',
+    'remotesupport',
+    'remote-access'
+  ]
+
   // Record a device for an exam session
   async registerDevice(sessionId: string, studentId: string, deviceInfo: any, ipAddress: string): Promise<boolean> {
     try {
@@ -89,7 +132,31 @@ class ExamSecurityService {
 
         return false
       }
+      const db = databaseService.db
+      const collections = await db.listCollections().toArray()
+      const collectionNames = collections.map((c) => c.name)
 
+      const requiredCollections = [
+        'exam_devices',
+        'exam_violations',
+        'exam_verifications',
+        'exam_remote_access_checks',
+        'exam_remote_access_detections'
+      ]
+
+      for (const collection of requiredCollections) {
+        if (!collectionNames.includes(collection)) {
+          await db.createCollection(collection)
+
+          // Create indexes
+          if (collection === 'exam_remote_access_checks' || collection === 'exam_remote_access_detections') {
+            await db.collection(collection).createIndex({ session_id: 1 })
+            await db.collection(collection).createIndex({ student_id: 1 })
+            await db.collection(collection).createIndex({ timestamp: 1 })
+            await db.collection(collection).createIndex({ detected: 1 })
+          }
+        }
+      }
       return true
     } catch (error) {
       console.error('Error registering device:', error)
@@ -581,6 +648,254 @@ class ExamSecurityService {
     } catch (error) {
       console.error('Error checking fingerprint history:', error)
       return 5
+    }
+  }
+  async detectRemoteAccessSoftware(
+    sessionId: string,
+    studentId: string,
+    remoteAccessData: RemoteAccessData
+  ): Promise<RemoteAccessDetectionResult> {
+    try {
+      // Đảm bảo collection tồn tại
+      await this.ensureCollectionsExist()
+
+      // Lưu dữ liệu vào database để phân tích sau
+      await databaseService.db.collection('exam_remote_access_checks').insertOne({
+        session_id: new ObjectId(sessionId),
+        student_id: new ObjectId(studentId),
+        data: remoteAccessData,
+        timestamp: new Date()
+      })
+
+      let detectionScore = 0
+      let detectionDetails: any = {}
+
+      // 1. Kiểm tra tên process
+      if (remoteAccessData.processNames && remoteAccessData.processNames.length > 0) {
+        const suspiciousProcesses = remoteAccessData.processNames.filter((process) =>
+          this.remoteAccessSoftwarePatterns.some((pattern) => process.toLowerCase().includes(pattern))
+        )
+
+        if (suspiciousProcesses.length > 0) {
+          detectionScore += 60 // Dấu hiệu rất mạnh
+          detectionDetails.suspiciousProcesses = suspiciousProcesses
+        }
+      }
+
+      // 2. Kiểm tra plugin trình duyệt đáng ngờ
+      if (remoteAccessData.plugins && remoteAccessData.plugins.length > 0) {
+        const suspiciousPlugins = remoteAccessData.plugins.filter((plugin) =>
+          this.remoteAccessSoftwarePatterns.some((pattern) => (plugin.name || '').toLowerCase().includes(pattern))
+        )
+
+        if (suspiciousPlugins.length > 0) {
+          detectionScore += 40 // Dấu hiệu khá mạnh
+          detectionDetails.suspiciousPlugins = suspiciousPlugins.map((p) => p.name)
+        }
+      }
+
+      // 3. Kiểm tra active screen sharing
+      if (remoteAccessData.screenSharingActive) {
+        detectionScore += 70 // Dấu hiệu rất mạnh
+        detectionDetails.screenSharing = true
+      }
+
+      // 4. Phân tích dữ liệu WebRTC
+      if (remoteAccessData.webRTCData) {
+        // Kiểm tra các kết nối không phổ biến, nhiều IP, kết nối trung gian
+        const webRTCData = remoteAccessData.webRTCData
+
+        // Kiểm tra nếu có nhiều hơn 2 địa chỉ IP khác nhau
+        if (webRTCData.localIPs && webRTCData.localIPs.length > 2) {
+          detectionScore += 15
+          detectionDetails.multipleIPs = webRTCData.localIPs
+        }
+
+        // Kiểm tra loại kết nối
+        if (
+          webRTCData.connectionType &&
+          ['vpn', 'proxy', 'relay', 'virtual'].some((type) => webRTCData.connectionType.toLowerCase().includes(type))
+        ) {
+          detectionScore += 20
+          detectionDetails.suspiciousConnection = webRTCData.connectionType
+        }
+      }
+
+      // 5. Phân tích mẫu nhập liệu
+      if (remoteAccessData.inputPatterns) {
+        const patterns = remoteAccessData.inputPatterns
+
+        // Kiểm tra độ trễ nhập liệu bất thường (có thể do điều khiển từ xa)
+        if (patterns.averageDelay && patterns.averageDelay > 200) {
+          detectionScore += 15
+          detectionDetails.unusualInputDelay = patterns.averageDelay
+        }
+
+        // Kiểm tra mẫu nhập liệu không tự nhiên
+        if (patterns.irregularPattern) {
+          detectionScore += 20
+          detectionDetails.irregularInputPattern = true
+        }
+      }
+
+      // 6. Kiểm tra thông tin user agent
+      if (remoteAccessData.userAgentData) {
+        // Kiểm tra các dấu hiệu bất thường trong user agent
+        const userAgentLower = (remoteAccessData.userAgentData.raw || '').toLowerCase()
+        if (this.remoteAccessSoftwarePatterns.some((pattern) => userAgentLower.includes(pattern))) {
+          detectionScore += 30
+          detectionDetails.suspiciousUserAgent = remoteAccessData.userAgentData.raw
+        }
+
+        // Kiểm tra nếu platform version quá mới hoặc quá cũ (bất thường)
+        if (remoteAccessData.userAgentData.platformVersion) {
+          const versionParts = remoteAccessData.userAgentData.platformVersion.split('.')
+          if (versionParts.length > 0) {
+            const majorVersion = parseInt(versionParts[0])
+            // Kiểm tra nếu phiên bản quá cao hoặc quá thấp (giá trị cần điều chỉnh)
+            if (majorVersion > 30 || majorVersion < 5) {
+              detectionScore += 10
+              detectionDetails.suspiciousPlatformVersion = remoteAccessData.userAgentData.platformVersion
+            }
+          }
+        }
+      }
+
+      // 7. Kiểm tra dấu hiệu của các thiết bị ảo
+      if (remoteAccessData.virtualDeviceSignatures && remoteAccessData.virtualDeviceSignatures.length > 0) {
+        const virtualSignatures = [
+          'vmware',
+          'virtualbox',
+          'qemu',
+          'xen',
+          'parallels',
+          'hyperv',
+          'virtual machine',
+          'emulator',
+          'android studio',
+          'bluestacks',
+          'nox',
+          'genymotion',
+          'windroy',
+          'virtual device'
+        ]
+
+        const foundVirtualSignatures = remoteAccessData.virtualDeviceSignatures.filter((sig) =>
+          virtualSignatures.some((pattern) => sig.toLowerCase().includes(pattern))
+        )
+
+        if (foundVirtualSignatures.length > 0) {
+          detectionScore += 25
+          detectionDetails.virtualDeviceSignatures = foundVirtualSignatures
+        }
+      }
+
+      // 8. Kiểm tra window properties bất thường
+      if (remoteAccessData.windowProperties) {
+        // Kiểm tra các thuộc tính cửa sổ không phổ biến
+        const props = remoteAccessData.windowProperties
+
+        // Kiểm tra nếu có các thuộc tính không phổ biến do phần mềm điều khiển từ xa thêm vào
+        const suspiciousProps = Object.keys(props).filter((key) =>
+          this.remoteAccessSoftwarePatterns.some((pattern) => key.toLowerCase().includes(pattern))
+        )
+
+        if (suspiciousProps.length > 0) {
+          detectionScore += 35
+          detectionDetails.suspiciousWindowProperties = suspiciousProps
+        }
+
+        // Kiểm tra kích thước cửa sổ bất thường (có thể do điều khiển từ xa)
+        if (props.innerWidth && props.outerWidth && props.innerHeight && props.outerHeight) {
+          const widthDiff = props.outerWidth - props.innerWidth
+          const heightDiff = props.outerHeight - props.innerHeight
+
+          // Nếu sự khác biệt quá lớn hoặc quá nhỏ (không phổ biến)
+          if (widthDiff < 5 || widthDiff > 200 || heightDiff < 30 || heightDiff > 300) {
+            detectionScore += 10
+            detectionDetails.unusualWindowDimensions = {
+              innerWidth: props.innerWidth,
+              outerWidth: props.outerWidth,
+              innerHeight: props.innerHeight,
+              outerHeight: props.outerHeight
+            }
+          }
+        }
+      }
+
+      // 9. Kiểm tra chỉ số hiệu suất
+      if (remoteAccessData.performanceMetrics) {
+        const metrics = remoteAccessData.performanceMetrics
+
+        // Kiểm tra nếu có độ trễ hoạt ảnh cao (có thể do điều khiển từ xa)
+        if (metrics.animationDelay && metrics.animationDelay > 100) {
+          detectionScore += 15
+          detectionDetails.highAnimationDelay = metrics.animationDelay
+        }
+
+        // Kiểm tra nếu có độ trễ render cao
+        if (metrics.renderDelay && metrics.renderDelay > 50) {
+          detectionScore += 10
+          detectionDetails.highRenderDelay = metrics.renderDelay
+        }
+
+        // Kiểm tra nếu có frameRate thấp bất thường
+        if (metrics.frameRate && metrics.frameRate < 30) {
+          detectionScore += 15
+          detectionDetails.lowFrameRate = metrics.frameRate
+        }
+      }
+
+      // Xác định mức độ nghiêm trọng dựa trên điểm số
+      let severity: 'low' | 'medium' | 'high' = 'low'
+
+      if (detectionScore >= 60) {
+        severity = 'high'
+      } else if (detectionScore >= 30) {
+        severity = 'medium'
+      }
+
+      // Ghi lại kết quả phát hiện vào cơ sở dữ liệu
+      if (detectionScore > 0) {
+        await databaseService.db.collection('exam_remote_access_detections').insertOne({
+          session_id: new ObjectId(sessionId),
+          student_id: new ObjectId(studentId),
+          score: detectionScore,
+          details: detectionDetails,
+          severity,
+          detected: detectionScore >= 30, // Xác định có phát hiện được hay không
+          timestamp: new Date()
+        })
+
+        // Nếu phát hiện đủ mạnh, ghi lại vi phạm
+        if (detectionScore >= 30) {
+          await this.recordViolation(
+            sessionId,
+            studentId,
+            'remote_access_detected',
+            {
+              score: detectionScore,
+              details: detectionDetails
+            },
+            severity as 'low' | 'medium' | 'high'
+          )
+        }
+      }
+
+      return {
+        detected: detectionScore >= 30,
+        score: detectionScore,
+        details: detectionDetails,
+        severity
+      }
+    } catch (error) {
+      console.error('Error detecting remote access software:', error)
+      return {
+        detected: false,
+        score: 0,
+        details: { error: 'Error during detection process' },
+        severity: 'low'
+      }
     }
   }
 }

@@ -525,3 +525,128 @@ export const getStudentViolationsController = async (req: Request, res: Response
     })
   }
 }
+export const getMasterExamsWithStatusController = async (req: Request, res: Response) => {
+  const { user_id } = req.decode_authorization as TokenPayload
+
+  try {
+    const masterExams = await examService.getMasterExamsWithStatus(user_id)
+
+    res.json({
+      message: 'Master exams retrieved successfully',
+      result: masterExams
+    })
+  } catch (error) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      message: 'Failed to retrieve master exams',
+      error: error
+    })
+  }
+}
+
+// Toggle master exam status
+export const toggleMasterExamStatusController = async (req: Request, res: Response) => {
+  const { master_exam_id } = req.params
+  const { active } = req.body
+  const { user_id } = req.decode_authorization as TokenPayload
+
+  try {
+    // Verify the master exam exists and belongs to this teacher
+    const masterExam = await examService.getMasterExamById(master_exam_id)
+    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+    if (!masterExam) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        message: 'Master exam not found'
+      })
+    }
+
+    if (masterExam.teacher_id.toString() !== user_id && user?.role !== UserRole.Teacher) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        message: 'Not authorized to update this master exam'
+      })
+    }
+
+    const result = await examService.toggleMasterExamStatus(master_exam_id, active)
+
+    res.json({
+      message: `Master exam ${active ? 'activated' : 'deactivated'} successfully`,
+      result
+    })
+  } catch (error) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      message: 'Failed to update master exam status',
+      error: error
+    })
+  }
+}
+
+// Delete master exam with restrictions
+export const deleteMasterExamController = async (req: Request, res: Response) => {
+  const { master_exam_id } = req.params
+  const { user_id } = req.decode_authorization as TokenPayload
+
+  try {
+    const result = await examService.deleteMasterExam(master_exam_id, user_id)
+
+    res.json({
+      message: 'Master exam deleted successfully',
+      result
+    })
+  } catch (error: any) {
+    // Determine the appropriate status code based on the error
+    let statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR
+    let message = 'Failed to delete master exam'
+
+    if (error.message.includes('Not authorized')) {
+      statusCode = HTTP_STATUS.FORBIDDEN
+      message = error.message
+    } else if (error.message.includes('not found')) {
+      statusCode = HTTP_STATUS.NOT_FOUND
+      message = error.message
+    } else if (error.message.startsWith('Cannot delete:')) {
+      statusCode = HTTP_STATUS.BAD_REQUEST
+      message = error.message
+    }
+
+    res.status(statusCode).json({
+      message,
+      error: error.message
+    })
+  }
+}
+
+// Get detailed master exam with all exams
+export const getMasterExamWithExamsController = async (req: Request, res: Response) => {
+  const { master_exam_id } = req.params
+  const { user_id } = req.decode_authorization as TokenPayload
+
+  try {
+    // Verify the user has permission
+    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+    const masterExam = await examService.getMasterExamById(master_exam_id)
+
+    if (!masterExam) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        message: 'Master exam not found'
+      })
+    }
+
+    if (masterExam.teacher_id.toString() !== user_id && user?.role !== UserRole.Teacher) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        message: 'Not authorized to view this master exam'
+      })
+    }
+
+    const result = await examService.getMasterExamWithExams(master_exam_id)
+
+    res.json({
+      message: 'Master exam retrieved successfully',
+      result
+    })
+  } catch (error) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      message: 'Failed to retrieve master exam',
+      error: error
+    })
+  }
+}

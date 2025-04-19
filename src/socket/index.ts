@@ -261,47 +261,57 @@ export const initSocketServer = (httpServer: http.Server) => {
           activeExams.get(session_id).last_activity = new Date()
         }
 
-        // Record as violation
-        const violation = await examSecurityService.recordViolation(
-          session_id,
-          user_id,
-          'tab_switch',
-          { timestamp: new Date() },
-          'medium'
-        )
+        // Check for recent tab switch violations to avoid duplicates
+        const existingViolation = await databaseService.db.collection('exam_violations').findOne({
+          session_id: new ObjectId(session_id),
+          type: 'tab_switch',
+          // Check for violations within the last 5 seconds
+          timestamp: { $gte: new Date(Date.now() - 5000) }
+        })
 
-        // Update session in database
-        const updatedSession = await examSessionService.recordViolation(session_id)
-
-        if (updatedSession) {
-          // Broadcast violation to the exam room
-          io.to(`exam_${session_id}`).emit('violation_recorded', {
+        // Only proceed if no recent duplicate exists
+        if (!existingViolation) {
+          // Record as violation
+          const violation = await examSecurityService.recordViolation(
             session_id,
-            violations: updatedSession.violations,
-            score: updatedSession.score,
-            type: 'tab_switch'
-          })
+            user_id,
+            'tab_switch',
+            { timestamp: new Date() },
+            'medium'
+          )
 
-          // Find the exam ID for this session
-          const session = await databaseService.examSessions.findOne({ _id: new ObjectId(session_id as string) })
+          // Update session in database
+          const updatedSession = await examSessionService.recordViolation(session_id)
 
-          if (session) {
-            const examId = session.exam_id.toString()
-
-            // Get student info for teacher notifications
-            const student = await databaseService.users.findOne({ _id: new ObjectId(user_id as string) })
-
-            // Also send to teachers monitoring this exam
-            io.to(`monitor_${examId}`).emit('violation_recorded', {
+          if (updatedSession) {
+            // Broadcast violation to the exam room
+            io.to(`exam_${session_id}`).emit('violation_recorded', {
               session_id,
-              exam_id: examId,
-              student_id: user_id,
-
               violations: updatedSession.violations,
               score: updatedSession.score,
-              type: 'tab_switch',
-              timestamp: new Date()
+              type: 'tab_switch'
             })
+
+            // Find the exam ID for this session
+            const session = await databaseService.examSessions.findOne({ _id: new ObjectId(session_id as string) })
+
+            if (session) {
+              const examId = session.exam_id.toString()
+
+              // Get student info for teacher notifications
+              const student = await databaseService.users.findOne({ _id: new ObjectId(user_id as string) })
+
+              // Also send to teachers monitoring this exam
+              io.to(`monitor_${examId}`).emit('violation_recorded', {
+                session_id,
+                exam_id: examId,
+                student_id: user_id,
+                violations: updatedSession.violations,
+                score: updatedSession.score,
+                type: 'tab_switch',
+                timestamp: new Date()
+              })
+            }
           }
         }
       } catch (error) {
@@ -335,45 +345,56 @@ export const initSocketServer = (httpServer: http.Server) => {
           severity = 'low'
         }
 
-        // Record the violation
-        const violation = await examSecurityService.recordViolation(session_id, user_id, type, details, severity)
+        // First, check if this violation was already recorded from the client side
+        const existingViolation = await databaseService.db.collection('exam_violations').findOne({
+          session_id: new ObjectId(session_id),
+          type: type,
+          // Check for violations within the last 5 seconds to avoid duplicates
+          timestamp: { $gte: new Date(Date.now() - 5000) }
+        })
 
-        // Get updated session
-        const updatedSession = await examSessionService.recordViolation(session_id)
+        // Only record if no recent duplicate exists
+        if (!existingViolation) {
+          // Record the violation
+          const violation = await examSecurityService.recordViolation(session_id, user_id, type, details, severity)
 
-        if (updatedSession) {
-          // Broadcast violation to the exam room
-          io.to(`exam_${session_id}`).emit('violation_recorded', {
-            session_id,
-            violations: updatedSession.violations,
-            score: updatedSession.score,
-            type,
-            severity
-          })
+          // Get updated session
+          const updatedSession = await examSessionService.recordViolation(session_id)
 
-          // Find the exam ID for this session
-          const session = await databaseService.examSessions.findOne({ _id: new ObjectId(session_id) })
-
-          if (session) {
-            const examId = session.exam_id.toString()
-
-            // Get student info for teacher notifications
-            const student = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
-
-            // Also send to teachers monitoring this exam
-            io.to(`monitor_${examId}`).emit('violation_recorded', {
+          if (updatedSession) {
+            // Broadcast violation to the exam room
+            io.to(`exam_${session_id}`).emit('violation_recorded', {
               session_id,
-              exam_id: examId,
-              student_id: user_id,
-              student_name: student?.name || 'Unknown',
-              student_username: student?.username || 'Unknown',
               violations: updatedSession.violations,
               score: updatedSession.score,
               type,
-              severity,
-              details,
-              timestamp: new Date()
+              severity
             })
+
+            // Find the exam ID for this session
+            const session = await databaseService.examSessions.findOne({ _id: new ObjectId(session_id) })
+
+            if (session) {
+              const examId = session.exam_id.toString()
+
+              // Get student info for teacher notifications
+              const student = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+              // Also send to teachers monitoring this exam
+              io.to(`monitor_${examId}`).emit('violation_recorded', {
+                session_id,
+                exam_id: examId,
+                student_id: user_id,
+                student_name: student?.name || 'Unknown',
+                student_username: student?.username || 'Unknown',
+                violations: updatedSession.violations,
+                score: updatedSession.score,
+                type,
+                severity,
+                details,
+                timestamp: new Date()
+              })
+            }
           }
         }
       } catch (error) {
@@ -499,13 +520,32 @@ export const initSocketServer = (httpServer: http.Server) => {
           return
         }
 
-        // Send message to student
-        io.to(`exam_${session_id}`).emit('teacher_message', {
+        // Send message to student with timestamp and additional metadata
+        const messageData = {
           session_id,
           message,
           teacher_id: socket.data.user_id,
-          timestamp: new Date()
-        })
+          timestamp: new Date(),
+          // Add metadata to make message more reliable
+          exam_id: exam._id.toString(),
+          messageId: new ObjectId().toString()
+        }
+
+        // Log the message being sent (for debugging)
+        console.log(`Teacher ${socket.data.user_id} sending message to session ${session_id}:`, messageData)
+
+        // Store message in database for reliability
+        try {
+          await databaseService.db.collection('exam_messages').insertOne({
+            ...messageData,
+            _id: new ObjectId(messageData.messageId)
+          })
+        } catch (err) {
+          console.error('Error storing teacher message:', err)
+        }
+
+        // Emit to all clients in the room (not just the sender)
+        io.to(`exam_${session_id}`).emit('teacher_message', messageData)
 
         console.log(`Teacher ${socket.data.user_id} sent message to session ${session_id}`)
       } catch (error) {
@@ -774,6 +814,210 @@ export const initSocketServer = (httpServer: http.Server) => {
       } catch (error) {
         console.error('Error setting up monitoring:', error)
         socket.emit('error', { message: 'Failed to set up monitoring' })
+      }
+    })
+    socket.on('check_remote_access', async (data) => {
+      try {
+        const { session_id, data: behavioralData } = data
+        const user_id = socket.data.user_id
+
+        // Log để debug
+        console.log(`Received remote access check for session ${session_id}`)
+
+        if (!behavioralData) {
+          console.error('Missing behavioral data in check_remote_access event')
+          return
+        }
+
+        // Lưu dữ liệu hành vi để phân tích sau
+        await databaseService.db.collection('exam_remote_access_checks').insertOne({
+          session_id: new ObjectId(session_id),
+          student_id: new ObjectId(user_id),
+          data: behavioralData,
+          timestamp: new Date()
+        })
+
+        // Phân tích dữ liệu hành vi trên server
+        // Điều này có thể phát hiện các mẫu và bằng chứng mà client không thể
+        let totalScore = 0
+        let evidenceDetails: any = {}
+        let severity: 'low' | 'medium' | 'high' = 'low'
+
+        // 1. Kiểm tra UltraViewer cụ thể
+        if (behavioralData.ultraViewerSpecific) {
+          totalScore += behavioralData.ultraViewerSpecific.score
+          if (behavioralData.ultraViewerSpecific.suspicious) {
+            evidenceDetails.ultraViewer = behavioralData.ultraViewerSpecific.details
+          }
+        }
+
+        // 2. Kiểm tra mẫu hành vi chuột
+        if (behavioralData.mouseMovements) {
+          totalScore += behavioralData.mouseMovements.score
+          if (behavioralData.mouseMovements.suspicious) {
+            evidenceDetails.mousePatterns = behavioralData.mouseMovements.details
+          }
+        }
+
+        // 3. Kiểm tra mẫu nhấn phím
+        if (behavioralData.keyPresses) {
+          totalScore += behavioralData.keyPresses.score
+          if (behavioralData.keyPresses.suspicious) {
+            evidenceDetails.keyPressPatterns = behavioralData.keyPresses.details
+          }
+        }
+
+        // 4. Kiểm tra thay đổi pixel
+        if (behavioralData.pixelChanges) {
+          totalScore += behavioralData.pixelChanges.score
+          if (behavioralData.pixelChanges.suspicious) {
+            evidenceDetails.screenChanges = behavioralData.pixelChanges.details
+          }
+        }
+
+        // 5. Phân tích mạng
+        if (behavioralData.network) {
+          totalScore += behavioralData.network.score
+          if (behavioralData.network.suspicious) {
+            evidenceDetails.networkActivity = behavioralData.network.details
+          }
+        }
+
+        // 6. Kiểm tra thay đổi timing
+        if (behavioralData.timing) {
+          totalScore += behavioralData.timing.score
+          if (behavioralData.timing.suspicious) {
+            evidenceDetails.timingAnomalies = behavioralData.timing.details
+          }
+        }
+
+        // 7. Kiểm tra API phát hiện
+        if (behavioralData.apiDetection) {
+          totalScore += behavioralData.apiDetection.score
+          if (behavioralData.apiDetection.suspicious) {
+            evidenceDetails.remoteAPIs = behavioralData.apiDetection.details
+          }
+        }
+
+        // 8. Kiểm tra mẫu nhấp chuột
+        if (behavioralData.mouseClicks) {
+          totalScore += behavioralData.mouseClicks.score
+          if (behavioralData.mouseClicks.suspicious) {
+            evidenceDetails.clickPatterns = behavioralData.mouseClicks.details
+          }
+        }
+
+        // Kiểm tra thông tin thêm từ client
+        if (behavioralData.remoteAccessDetected) {
+          // Client đã phát hiện vi phạm - tăng độ tin cậy
+          totalScore += 30
+          evidenceDetails.clientDetection = true
+        }
+
+        // Xác định mức độ nghiêm trọng
+        if (totalScore >= 120) {
+          severity = 'high'
+        } else if (totalScore >= 70) {
+          severity = 'medium'
+        } else if (totalScore >= 40) {
+          severity = 'low'
+        } else {
+          // Không đủ bằng chứng để xác nhận vi phạm
+          return
+        }
+
+        console.log(`Remote access detection for session ${session_id}: score=${totalScore}, severity=${severity}`)
+
+        // Nếu đạt ngưỡng nghi ngờ, ghi nhận vi phạm
+        if (totalScore >= 40) {
+          // Ghi lại vi phạm vào cơ sở dữ liệu
+          await examSecurityService.recordViolation(
+            session_id,
+            user_id,
+            'remote_access_software',
+            {
+              score: totalScore,
+              details: evidenceDetails,
+              detection_time: new Date()
+            },
+            severity
+          )
+
+          // Cập nhật thông tin vi phạm trong session
+          const updatedSession = await examSessionService.recordViolation(session_id)
+
+          // Nếu mức độ nghiêm trọng cao, tự động kết thúc bài thi
+          if (severity === 'high') {
+            await examSessionService.recordCriticalViolation(session_id)
+
+            // Xóa từ danh sách bài thi đang hoạt động
+            activeExams.delete(session_id)
+
+            // Thông báo cho học sinh
+            io.to(`exam_${session_id}`).emit('remote_access_detected', {
+              session_id,
+              message: 'Phát hiện phần mềm điều khiển từ xa (UltraViewer)! Bài thi của bạn đã bị chấm dứt.',
+              severity: 'high',
+              details: {
+                score: totalScore,
+                evidenceDetails
+              }
+            })
+          } else {
+            // Thông báo cảnh báo
+            io.to(`exam_${session_id}`).emit('remote_access_detected', {
+              session_id,
+              message: `Phát hiện dấu hiệu phần mềm điều khiển từ xa! ${severity === 'medium' ? 'Đây là vi phạm nghiêm trọng.' : 'Đây có thể là vi phạm.'}`,
+              severity,
+              details: {
+                score: totalScore,
+                evidenceDetails
+              }
+            })
+          }
+
+          // Thông báo cho giáo viên
+          const session = await databaseService.examSessions.findOne({ _id: new ObjectId(session_id) })
+          if (session) {
+            const examId = session.exam_id.toString()
+
+            // Lấy thông tin học sinh
+            const student = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+            // Thông báo vi phạm cho giáo viên giám sát
+            io.to(`monitor_${examId}`).emit('violation_recorded', {
+              session_id,
+              exam_id: examId,
+              student_id: user_id,
+              student_name: student?.name || 'Unknown',
+              student_username: student?.username || 'Unknown',
+              violations: updatedSession?.violations,
+              score: updatedSession?.score,
+              type: 'remote_access_detected',
+              severity,
+              details: {
+                score: totalScore,
+                evidence: evidenceDetails
+              },
+              timestamp: new Date()
+            })
+
+            // Nếu nghiêm trọng, thông báo bài thi đã bị kết thúc
+            if (severity === 'high') {
+              io.to(`monitor_${examId}`).emit('student_exam_ended', {
+                session_id,
+                exam_id: examId,
+                student_id: user_id,
+                student_name: student?.name || 'Unknown',
+                student_username: student?.username || 'Unknown',
+                reason: 'Phát hiện phần mềm điều khiển từ xa (UltraViewer)',
+                timestamp: new Date()
+              })
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error processing remote access detection:', error)
       }
     })
     // Periodic time updates (every 5 seconds)
