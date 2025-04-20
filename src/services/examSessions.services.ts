@@ -2,15 +2,30 @@ import { ObjectId } from 'mongodb'
 import databaseService from './database.services'
 import ExamSession from '../models/schemas/ExamSession.schema'
 import examService from './exams.services'
+import { ErrorWithStatus } from '~/models/Errors'
+import HTTP_STATUS from '../constants/httpStatus'
 
 class ExamSessionService {
   async startExamSession({ exam_code, student_id }: { exam_code: string; student_id: string }) {
     // Get exam by code
     const exam = await examService.getExamByCode(exam_code)
+    const exams_session_student = await databaseService.examSessions.findOne({
+      exam_id: exam._id,
+      student_id: new ObjectId(student_id),
+      completed: true
+    })
 
     // Check if the exam is active
     if (!exam.active) {
       throw new Error('Bài kiểm tra này hiện đã bị vô hiệu hóa')
+    }
+
+    // Kiểm tra nếu kỳ thi đã kết thúc
+    if (exams_session_student) {
+      throw new ErrorWithStatus({
+        message: `Bạn đã làm bài kiểm tra trong kì thi ${exam.title.split('#')[0]}. Nếu có sai sót hãy liên hệ với giáo viên`,
+        status: HTTP_STATUS.BAD_REQUEST
+      })
     }
 
     // Check if the current time is after the scheduled start time

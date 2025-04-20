@@ -7,22 +7,15 @@ export const startExamController = async (req: Request, res: Response) => {
   const { exam_code } = req.body
   const { user_id } = req.decode_authorization as TokenPayload
 
-  try {
-    const result = await examSessionService.startExamSession({
-      exam_code,
-      student_id: user_id
-    })
+  const result = await examSessionService.startExamSession({
+    exam_code,
+    student_id: user_id
+  })
 
-    res.json({
-      message: 'Exam started successfully',
-      result
-    })
-  } catch (error) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-      message: 'chưa đến thời gian làm bài thi',
-      error: error
-    })
-  }
+  res.json({
+    message: 'Exam started successfully',
+    result
+  })
 }
 
 export const submitExamController = async (req: Request, res: Response) => {
