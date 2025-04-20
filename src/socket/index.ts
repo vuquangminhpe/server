@@ -277,7 +277,7 @@ export const initSocketServer = (httpServer: http.Server) => {
             user_id,
             'tab_switch',
             { timestamp: new Date() },
-            'medium'
+            'high'
           )
 
           // Update session in database
@@ -1104,7 +1104,7 @@ export const initSocketServer = (httpServer: http.Server) => {
               socket.data.user_id,
               'sudden_disconnect',
               { ip_address: socket.data.ip_address },
-              'medium'
+              'high'
             )
 
             // Find the exam ID for this session

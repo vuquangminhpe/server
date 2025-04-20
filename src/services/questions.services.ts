@@ -49,7 +49,7 @@ class QuestionService {
         },
         {
           $lookup: {
-            from: 'master_exams', // Collection name for master exams
+            from: 'master_exams',
             localField: 'master_exam_id',
             foreignField: '_id',
             as: 'master_exam'
@@ -114,10 +114,13 @@ class QuestionService {
     return result.deletedCount > 0
   }
 
-  async getRandomQuestions(teacher_id: string, count: number) {
+  async getRandomQuestions(teacher_id: string, count: number, master_exam_id: string) {
     // Get random questions for a specific teacher
     const questions = await databaseService.questions
-      .aggregate([{ $match: { teacher_id: new ObjectId(teacher_id) } }, { $sample: { size: count } }])
+      .aggregate([
+        { $match: { teacher_id: new ObjectId(teacher_id), master_exam_id: new ObjectId(master_exam_id) } },
+        { $sample: { size: count } }
+      ])
       .toArray()
 
     return questions

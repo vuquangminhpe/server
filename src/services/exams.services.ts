@@ -6,6 +6,8 @@ import questionService from './questions.services'
 import QRCode from 'qrcode'
 import MasterExam from '../models/schemas/MasterExam.schema'
 import { UserRole } from '../models/schemas/User.schema'
+import { ErrorWithStatus } from '../models/Errors'
+import HTTP_STATUS from '../constants/httpStatus'
 
 class ExamService {
   // Generate a unique exam code
@@ -39,12 +41,20 @@ class ExamService {
     master_exam_id: string
   }) {
     // Get random questions from this teacher's question bank
-    const questions = await questionService.getRandomQuestions(teacher_id, question_count)
+    const questions = await questionService.getRandomQuestions(teacher_id, question_count, master_exam_id)
 
     if (questions.length === 0) {
-      throw new Error('Không có câu hỏi nào. Vui lòng tạo câu hỏi trước.')
+      throw new ErrorWithStatus({
+        message: 'Không có câu hỏi nào. Vui lòng tạo câu hỏi trước.',
+        status: HTTP_STATUS.NOT_FOUND
+      })
     }
-
+    if (questions.length < question_count) {
+      throw new ErrorWithStatus({
+        message: 'Không đủ câu hỏi để tạo bài thi. Vui lòng tạo thêm câu hỏi.',
+        status: HTTP_STATUS.NOT_FOUND
+      })
+    }
     const exam_code = this.generateExamCode()
 
     const exam = new Exam({

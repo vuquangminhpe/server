@@ -104,7 +104,7 @@ class ExamSecurityService {
             fingerprint: deviceInfo.fingerprint,
             count: deviceCount
           },
-          'medium'
+          'low'
         )
 
         return false
@@ -127,7 +127,7 @@ class ExamSecurityService {
             current_ip: ipAddress,
             count: ipCount
           },
-          'medium'
+          'high'
         )
 
         return false
@@ -284,9 +284,7 @@ class ExamSecurityService {
 
   // Determine security level based on exam settings and environmental factors
   async getSecurityLevel(sessionId: string): Promise<'low' | 'medium' | 'high'> {
-    // This could be based on exam settings, school policy, etc.
-    // For now, just return 'medium' as default
-    return 'medium'
+    return 'high'
   }
 
   // Ensure collections exist
