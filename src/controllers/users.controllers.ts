@@ -161,7 +161,6 @@ export const refreshTokenController = async (
 }
 export const emailVerifyController = async (req: Request<ParamsDictionary, any, VerifyEmailReqBody>, res: Response) => {
   const { user_id } = req.decoded_email_verify_token as TokenPayload
-  console.log('user_id', user_id)
 
   const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
   if (!user) {
@@ -279,7 +278,6 @@ export const getProfileByIdController = async (
   res: Response
 ) => {
   const { user_id } = req.params
-  console.log('user_id', user_id)
 
   const result = await usersService.getProfileByUserId(user_id)
   res.json(result)

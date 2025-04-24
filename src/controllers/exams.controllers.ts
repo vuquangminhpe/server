@@ -258,7 +258,6 @@ export const getClassExamResultsController = async (req: Request, res: Response)
 export const createMasterExamController = async (req: Request, res: Response) => {
   const { name, description, exam_period, start_time, end_time } = req.body
   const { user_id } = req.decode_authorization as TokenPayload
-  console.log(req.body)
 
   try {
     const result = await examService.createMasterExam({

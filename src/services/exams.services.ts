@@ -460,8 +460,6 @@ class ExamService {
   }
 
   async getMasterExams(teacher_id: string) {
-    console.log(teacher_id)
-
     const masterExams = await databaseService.masterExams
       .find({ teacher_id: new ObjectId(teacher_id) })
       .sort({ created_at: -1 })

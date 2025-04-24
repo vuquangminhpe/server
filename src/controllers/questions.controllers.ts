@@ -4,7 +4,7 @@ import questionService from '../services/questions.services'
 import { TokenPayload } from '../models/request/User.request'
 
 export const createQuestionController = async (req: Request, res: Response) => {
-  const { content, answers, correct_index, master_exam_id } = req.body
+  const { content, answers, correct_index, master_exam_id, questionLink } = req.body
   const { user_id } = req.decode_authorization as TokenPayload as TokenPayload
 
   try {
@@ -13,7 +13,8 @@ export const createQuestionController = async (req: Request, res: Response) => {
       answers,
       correct_index,
       teacher_id: user_id,
-      master_exam_id
+      master_exam_id,
+      questionLink
     })
 
     res.json({
@@ -31,7 +32,6 @@ export const createQuestionController = async (req: Request, res: Response) => {
 export const getQuestionsController = async (req: Request, res: Response) => {
   const { user_id } = req.decode_authorization as TokenPayload
   const { master_exam_id } = req.body
-  console.log('getQuestionsController', user_id, master_exam_id)
 
   try {
     const questions = await questionService.getQuestionsByTeacher(user_id, master_exam_id?.toString())

@@ -8,20 +8,23 @@ class QuestionService {
     answers,
     correct_index,
     teacher_id,
-    master_exam_id
+    master_exam_id,
+    questionLink
   }: {
     content: string
     answers: string[]
     correct_index: number
     teacher_id: string
     master_exam_id: string
+    questionLink?: string
   }) {
     const question = new Question({
       content,
       answers,
       correct_index,
       teacher_id: new ObjectId(teacher_id),
-      master_exam_id: new ObjectId(master_exam_id)
+      master_exam_id: new ObjectId(master_exam_id),
+      questionLink
     })
 
     await databaseService.questions.insertOne(question)
@@ -71,7 +74,7 @@ class QuestionService {
             created_at: 1,
             updated_at: 1,
             master_exam_id: 1,
-            // Add master exam fields
+            questionLink: 1,
             exam_name: '$master_exam.name',
             exam_period: '$master_exam.exam_period',
             exam_id: '$master_exam._id'

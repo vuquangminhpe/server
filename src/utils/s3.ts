@@ -5,15 +5,9 @@ import fs from 'fs'
 import { Response } from 'express'
 import HTTP_STATUS from '../constants/httpStatus'
 import { envConfig } from '../constants/config'
-import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3'
+import { S3Client, DeleteObjectsCommand } from '@aws-sdk/client-s3'
 config()
-const s3s = new S3Client({
-  region: envConfig.region,
-  credentials: {
-    secretAccessKey: envConfig.secretAccessKey as string,
-    accessKeyId: envConfig.accessKeyId as string
-  }
-})
+
 const s3 = new S3({
   region: envConfig.region,
   credentials: {

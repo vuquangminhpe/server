@@ -9,6 +9,7 @@ interface QuestionType {
   master_exam_id: ObjectId
   created_at?: Date
   updated_at?: Date
+  questionLink?: string
 }
 
 export default class Question {
@@ -20,6 +21,7 @@ export default class Question {
   created_at: Date
   master_exam_id: ObjectId
   updated_at: Date
+  questionLink?: string
 
   constructor({
     _id,
@@ -29,7 +31,8 @@ export default class Question {
     teacher_id,
     master_exam_id,
     created_at,
-    updated_at
+    updated_at,
+    questionLink
   }: QuestionType) {
     const date = new Date()
     this._id = _id
@@ -40,5 +43,6 @@ export default class Question {
     this.master_exam_id = master_exam_id
     this.created_at = created_at || date
     this.updated_at = updated_at || date
+    this.questionLink = questionLink || ''
   }
 }

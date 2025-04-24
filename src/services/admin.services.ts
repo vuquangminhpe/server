@@ -1,15 +1,8 @@
 import { ObjectId } from 'mongodb'
-import { AccountStatus, TweetType, UserVerifyStatus } from '../constants/enums'
-import {
-  UserStatsQuery,
-  ContentStatsQuery,
-  InteractionStatsQuery,
-  RevenueStatsQuery,
-  SystemStatsQuery,
-  AdminUserListQuery
-} from '../models/request/Admin.request'
+import { AccountStatus, UserVerifyStatus } from '../constants/enums'
+import { UserStatsQuery, ContentStatsQuery } from '../models/request/Admin.request'
 import databaseService from './database.services'
-import { AdminReportType, StatInterval } from '../constants/messages'
+import { StatInterval } from '../constants/messages'
 import { UserRole } from '../models/schemas/User.schema'
 
 class AdminService {
@@ -190,6 +183,319 @@ class AdminService {
     }
 
     return {}
+  }
+
+  // Get all teachers with pagination and search
+  async getAllTeachers(page: number = 1, limit: number = 10, search: string = '') {
+    const skip = (page - 1) * limit
+
+    // Create search filter
+    const searchFilter = search
+      ? {
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { username: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } }
+          ]
+        }
+      : {}
+
+    // Build query filter
+    const filter = {
+      role: UserRole.Teacher,
+      ...searchFilter
+    }
+
+    // Get teachers
+    const teachers = await databaseService.users
+      .find(filter, {
+        projection: {
+          password: 0,
+          email_verify_token: 0,
+          forgot_password_token: 0
+        }
+      })
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray()
+
+    // Get total count
+    const total = await databaseService.users.countDocuments(filter)
+
+    // Get exam counts for each teacher
+    const teachersWithExamCounts = await Promise.all(
+      teachers.map(async (teacher) => {
+        const examCount = await databaseService.exams.countDocuments({
+          teacher_id: teacher._id
+        })
+
+        const masterExamCount = await databaseService.masterExams.countDocuments({
+          teacher_id: teacher._id
+        })
+
+        return {
+          ...teacher,
+          exam_count: examCount,
+          master_exam_count: masterExamCount
+        }
+      })
+    )
+
+    return {
+      teachers: teachersWithExamCounts,
+      total,
+      page,
+      limit,
+      total_pages: Math.ceil(total / limit)
+    }
+  }
+
+  // Get all students with pagination and search
+  async getAllStudents(page: number = 1, limit: number = 10, search: string = '') {
+    const skip = (page - 1) * limit
+
+    // Create search filter
+    const searchFilter = search
+      ? {
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { username: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } },
+            { class: { $regex: search, $options: 'i' } }
+          ]
+        }
+      : {}
+
+    // Build query filter
+    const filter = {
+      role: UserRole.Student,
+      ...searchFilter
+    }
+
+    // Get students
+    const students = await databaseService.users
+      .find(filter, {
+        projection: {
+          password: 0,
+          email_verify_token: 0,
+          forgot_password_token: 0
+        }
+      })
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray()
+
+    // Get total count
+    const total = await databaseService.users.countDocuments(filter)
+
+    // Get exam session counts for each student
+    const studentsWithSessionCounts = await Promise.all(
+      students.map(async (student) => {
+        const sessionCount = await databaseService.examSessions.countDocuments({
+          student_id: student._id
+        })
+
+        const completedSessionCount = await databaseService.examSessions.countDocuments({
+          student_id: student._id,
+          completed: true
+        })
+
+        return {
+          ...student,
+          session_count: sessionCount,
+          completed_session_count: completedSessionCount
+        }
+      })
+    )
+
+    return {
+      students: studentsWithSessionCounts,
+      total,
+      page,
+      limit,
+      total_pages: Math.ceil(total / limit)
+    }
+  }
+
+  // Get all master exams with pagination and search
+  async getAllMasterExams(page: number = 1, limit: number = 10, search: string = '') {
+    const skip = (page - 1) * limit
+
+    // Create search filter
+    const searchFilter = search
+      ? {
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { description: { $regex: search, $options: 'i' } },
+            { exam_period: { $regex: search, $options: 'i' } }
+          ]
+        }
+      : {}
+
+    // Build query filter
+    const filter = {
+      ...searchFilter
+    }
+
+    // Get master exams
+    const masterExams = await databaseService.masterExams
+      .find(filter)
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray()
+
+    // Get total count
+    const total = await databaseService.masterExams.countDocuments(filter)
+
+    // Get related data for each master exam
+    const masterExamsWithDetails = await Promise.all(
+      masterExams.map(async (masterExam) => {
+        // Get teacher info
+        const teacher = await databaseService.users.findOne(
+          { _id: masterExam.teacher_id },
+          {
+            projection: {
+              name: 1,
+              username: 1,
+              email: 1
+            }
+          }
+        )
+
+        // Count child exams
+        const examCount = await databaseService.exams.countDocuments({
+          master_exam_id: masterExam._id
+        })
+
+        // Count completed sessions
+        const sessions = await databaseService.examSessions
+          .aggregate([
+            {
+              $lookup: {
+                from: 'exams',
+                localField: 'exam_id',
+                foreignField: '_id',
+                as: 'exam'
+              }
+            },
+            {
+              $unwind: '$exam'
+            },
+            {
+              $match: {
+                'exam.master_exam_id': masterExam._id
+              }
+            },
+            {
+              $count: 'total'
+            }
+          ])
+          .toArray()
+
+        const sessionCount = sessions.length > 0 ? sessions[0].total : 0
+
+        return {
+          ...masterExam,
+          teacher: teacher || { name: 'Unknown Teacher' },
+          exam_count: examCount,
+          session_count: sessionCount
+        }
+      })
+    )
+
+    return {
+      master_exams: masterExamsWithDetails,
+      total,
+      page,
+      limit,
+      total_pages: Math.ceil(total / limit)
+    }
+  }
+
+  // Delete a user and related data
+  async deleteUser(userId: string) {
+    const user = await databaseService.users.findOne({ _id: new ObjectId(userId) })
+
+    if (!user) {
+      throw new Error('User not found')
+    }
+
+    // Start a transaction
+    const session = databaseService.client.startSession()
+
+    try {
+      await session.withTransaction(async () => {
+        // Delete the user
+        await databaseService.users.deleteOne({ _id: new ObjectId(userId) }, { session })
+
+        // If teacher, delete their questions, exams, master exams
+        if (user.role === UserRole.Teacher) {
+          // Delete questions
+          await databaseService.questions.deleteMany({ teacher_id: new ObjectId(userId) }, { session })
+
+          // Get all master exams by this teacher
+          const masterExams = await databaseService.masterExams
+            .find({ teacher_id: new ObjectId(userId) }, { session })
+            .toArray()
+
+          const masterExamIds = masterExams.map((exam) => exam._id)
+
+          // Delete all master exams
+          await databaseService.masterExams.deleteMany({ teacher_id: new ObjectId(userId) }, { session })
+
+          // Delete all exams associated with those master exams or teacher
+          await databaseService.exams.deleteMany(
+            {
+              $or: [{ teacher_id: new ObjectId(userId) }, { master_exam_id: { $in: masterExamIds } }]
+            },
+            { session }
+          )
+        }
+
+        // If student, delete their exam sessions
+        if (user.role === UserRole.Student) {
+          // Delete exam sessions
+          await databaseService.examSessions.deleteMany({ student_id: new ObjectId(userId) }, { session })
+
+          // Delete exam violations
+          await databaseService.db
+            .collection('exam_violations')
+            .deleteMany({ student_id: new ObjectId(userId) }, { session })
+        }
+
+        // Delete refresh tokens
+        await databaseService.refreshToken.deleteMany({ user_id: new ObjectId(userId) }, { session })
+      })
+
+      return { success: true, message: 'User and related data deleted successfully' }
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      throw error
+    } finally {
+      await session.endSession()
+    }
+  }
+
+  // Change user role
+  async changeUserRole(userId: string, role: UserRole) {
+    // Don't allow changing to admin role for security reasons
+    if (role === UserRole.Admin) {
+      throw new Error('Cannot promote to admin role using this API')
+    }
+
+    const result = await databaseService.users.findOneAndUpdate(
+      { _id: new ObjectId(userId) },
+      {
+        $set: { role },
+        $currentDate: { updated_at: true }
+      },
+      { returnDocument: 'after' }
+    )
+
+    return result
   }
 }
 
