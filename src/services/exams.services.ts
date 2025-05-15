@@ -92,25 +92,7 @@ class ExamService {
     return await databaseService.exams.findOne({ _id: new ObjectId(exam_id) })
   }
 
-  async getExamByCode(exam_code: string) {
-    const exam = await databaseService.exams.findOne({ exam_code })
 
-    if (!exam) {
-      throw new Error('Không tìm thấy bài kiểm tra hoặc không hoạt động')
-    }
-
-    // Check if exam is active
-    if (!exam.active) {
-      throw new Error('Bài kiểm tra này hiện đã bị vô hiệu hóa')
-    }
-
-    // Check if the exam start time is in the future
-    if (exam.start_time && new Date() < exam.start_time) {
-      throw new Error('Chưa đến giờ thi, hãy liên hệ giáo viên')
-    }
-
-    return exam
-  }
 
   async getExamWithQuestions(exam_id: string) {
     const exam = await databaseService.exams.findOne({ _id: new ObjectId(exam_id) })

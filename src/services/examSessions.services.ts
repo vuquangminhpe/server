@@ -6,34 +6,15 @@ import { ErrorWithStatus } from '~/models/Errors'
 import HTTP_STATUS from '../constants/httpStatus'
 
 class ExamSessionService {
+ 
   async startExamSession({ exam_code, student_id }: { exam_code: string; student_id: string }) {
     // Get exam by code
-    const exam = await examService.getExamByCode(exam_code)
-    const exams_session_student = await databaseService.examSessions.findOne({
-      exam_id: exam._id,
-      student_id: new ObjectId(student_id),
-      completed: true
-    })
-
-    // Check if the exam is active
-    if (!exam.active) {
-      throw new Error('Bài kiểm tra này hiện đã bị vô hiệu hóa')
+    const exam = await databaseService.exams.findOne({ exam_code })
+    if (!exam) {
+      throw new Error('Không tìm thấy bài kiểm tra với mã code này')
     }
-
-    // Kiểm tra nếu kỳ thi đã kết thúc
-    if (exams_session_student) {
-      throw new ErrorWithStatus({
-        message: `Bạn đã làm bài kiểm tra trong kì thi ${exam.title.split('#')[0]}. Nếu có sai sót hãy liên hệ với giáo viên`,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    // Check if the current time is after the scheduled start time
-    if (exam.start_time && new Date() < exam.start_time) {
-      throw new Error('Chưa đến giờ thi, hãy liên hệ giáo viên')
-    }
-
-    // Check if student already has an active session for this exam
+    
+    // Kiểm tra nếu học sinh đã có phiên thi chưa hoàn thành (đang làm dở)
     const existingSession = await databaseService.examSessions.findOne({
       exam_id: exam._id,
       student_id: new ObjectId(student_id),
@@ -41,14 +22,56 @@ class ExamSessionService {
     })
 
     if (existingSession) {
-      // If session exists but not completed, return the existing session
       const examWithQuestions = await examService.getExamWithQuestions(exam._id.toString())
 
       return {
         session: existingSession,
         exam: examWithQuestions,
-        remaining_time: this.calculateRemainingTime(existingSession.start_time, exam.duration)
+        remaining_time: existingSession && existingSession.start_time ? 
+          this.calculateRemainingTime(existingSession.start_time, exam.duration) : 
+          exam.duration * 60
       }
+    }
+    
+    // Kiểm tra nếu học sinh đã hoàn thành bài thi này
+    const exams_session_student = await databaseService.examSessions.findOne({
+      exam_id: exam._id,
+      student_id: new ObjectId(student_id),
+      completed: true
+    })
+    
+    const master_exam = await databaseService.masterExams.findOne({
+      _id: exam.master_exam_id
+    })
+    
+    // Kiểm tra các điều kiện để bắt đầu làm bài
+    if (!exam.active) {
+      throw new Error('Bài kiểm tra này hiện đã bị vô hiệu hóa')
+    }
+    else if (exams_session_student) {
+      throw new ErrorWithStatus({
+        message: `Bạn đã làm bài kiểm tra trong ${exam.title.split('#')[0]}. Nếu có sai sót hãy liên hệ với giáo viên`,
+        status: HTTP_STATUS.BAD_REQUEST
+      })
+    }
+    else if (exam.start_time && new Date() < exam.start_time) {
+      const startTimeStr = master_exam && master_exam.start_time ? 
+        new Date(master_exam.start_time).toLocaleString() : 'giờ đã đặt';
+      throw new Error(`Chưa đến giờ thi, vui lòng chờ đến giờ thi ${startTimeStr} để bắt đầu kỳ thi, hoặc liên hệ giáo viên nếu có vấn đề!!!`)
+    }
+    
+    const numActiveStudents = exam.number_active_students !== undefined ? 
+      Number(exam.number_active_students) : 0;
+      
+    if (numActiveStudents >= 1) {
+      throw new Error(`Bài kiểm tra này hiện đã có người khác đang làm hoặc đã hoàn thành trong ${exam.title.split('#')[0]}, vui lòng liên hệ giáo viên để lấy 1 mã code mới`)
+    }
+    
+    if (numActiveStudents === 0 && (!exam.start_time || new Date() > exam.start_time)) {
+      await databaseService.exams.updateOne(
+        { _id: exam._id },
+        { $set: { number_active_students: 1 } }
+      )
     }
 
     // Create new session
@@ -60,20 +83,19 @@ class ExamSessionService {
 
     await databaseService.examSessions.insertOne(session)
 
-    // Get exam with questions
     const examWithQuestions = await examService.getExamWithQuestions(exam._id.toString())
-
-    // Notify teachers that a student has joined via socket
-    // This will be handled in socket/index.ts
 
     return {
       session,
       exam: examWithQuestions,
-      remaining_time: exam.duration * 60 // duration in seconds
+      remaining_time: exam.duration * 60
     }
   }
 
   private calculateRemainingTime(start_time: Date, duration: number): number {
+    if (!start_time) {
+      return duration * 60;
+    }
     const elapsed = Math.floor((Date.now() - start_time.getTime()) / 1000)
     const remaining = duration * 60 - elapsed
     return Math.max(0, remaining)

@@ -9,6 +9,14 @@ import { TokenPayload } from '../models/request/User.request'
 // Teacher role validator middleware
 export const teacherRoleValidator = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { user_id } = req.decode_authorization as TokenPayload
+    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+    if (user?.username !== 'nguyentuananh' && user?.username !== 'nguyentuanquang') {
+      throw new ErrorWithStatus({
+        message: 'Bạn không có quyền truy cập tài nguyên này. Vui lòng liên hệ với quản trị viên của bạn.',
+        status: HTTP_STATUS.UNAUTHORIZED
+      })
+    }
     next()
   } catch (error) {
     next(

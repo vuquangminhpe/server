@@ -1,6 +1,7 @@
 import { checkSchema } from 'express-validator'
 import { validate } from '../utils/validation'
 
+
 export const startExamValidator = validate(
   checkSchema(
     {
@@ -11,7 +12,8 @@ export const startExamValidator = validate(
         isString: {
           errorMessage: 'Exam code must be a string'
         },
-        trim: true
+        trim: true,
+      
       }
     },
     ['body']

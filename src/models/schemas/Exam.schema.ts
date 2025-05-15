@@ -11,6 +11,7 @@ interface ExamType {
   created_at?: Date
   active?: boolean
   master_exam_id?: ObjectId
+  number_active_students?: number
 }
 
 export default class Exam {
@@ -24,6 +25,7 @@ export default class Exam {
   created_at: Date
   active: boolean
   master_exam_id?: ObjectId
+  number_active_students?: number
 
   constructor({
     _id,
@@ -35,7 +37,8 @@ export default class Exam {
     start_time,
     created_at,
     active,
-    master_exam_id
+    master_exam_id,
+    number_active_students
   }: ExamType) {
     const date = new Date()
     this._id = _id
@@ -48,5 +51,6 @@ export default class Exam {
     this.created_at = created_at || date
     this.active = active !== undefined ? active : true
     this.master_exam_id = master_exam_id
+    this.number_active_students = number_active_students || 0
   }
 }
