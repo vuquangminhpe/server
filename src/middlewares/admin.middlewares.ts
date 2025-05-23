@@ -1,76 +1,162 @@
+// src/middlewares/admin.middlewares.ts
 import { NextFunction, Request, Response } from 'express'
-import { checkSchema } from 'express-validator'
+import { ObjectId } from 'mongodb'
+import databaseService from '../services/database.services'
+import { TokenPayload } from '../models/request/User.request'
+import { UserRole } from '../models/schemas/User.schema'
+import { ErrorWithStatus } from '../models/Errors'
 import HTTP_STATUS from '../constants/httpStatus'
 import { ADMIN_MESSAGES } from '../constants/messages'
-import { ErrorWithStatus } from '../models/Errors'
-import databaseService from '../services/database.services'
-import { ObjectId } from 'mongodb'
-import { validate } from '../utils/validation'
-import { TokenPayload } from '../models/request/User.request'
 
+/**
+ * Middleware to check if user has admin role
+ */
 export const isAdminValidator = async (req: Request, res: Response, next: NextFunction) => {
-  const { user_id } = req.decode_authorization as TokenPayload
+  try {
+    const { user_id } = req.decode_authorization as TokenPayload
 
-  const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+    if (!user_id) {
+      return next(
+        new ErrorWithStatus({
+          message: ADMIN_MESSAGES.ADMIN_PERMISSION_REQUIRED,
+          status: HTTP_STATUS.UNAUTHORIZED
+        })
+      )
+    }
 
-  if (!user || user.role !== 'admin') {
-    return next(
+    // Get user from database to check role
+    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+    if (!user) {
+      return next(
+        new ErrorWithStatus({
+          message: 'User not found',
+          status: HTTP_STATUS.NOT_FOUND
+        })
+      )
+    }
+
+    if (user.role !== UserRole.Admin) {
+      return next(
+        new ErrorWithStatus({
+          message: ADMIN_MESSAGES.ADMIN_PERMISSION_REQUIRED,
+          status: HTTP_STATUS.FORBIDDEN
+        })
+      )
+    }
+
+    next()
+  } catch (error) {
+    next(
       new ErrorWithStatus({
-        message: ADMIN_MESSAGES.ADMIN_PERMISSION_REQUIRED,
-        status: HTTP_STATUS.FORBIDDEN
+        message: 'Failed to verify admin permissions',
+        status: HTTP_STATUS.INTERNAL_SERVER_ERROR
       })
     )
   }
-
-  next()
 }
 
-export const dateRangeValidator = validate(
-  checkSchema(
-    {
-      from_date: {
-        optional: true,
-        isISO8601: {
-          errorMessage: ADMIN_MESSAGES.INVALID_DATE_FORMAT
-        }
-      },
-      to_date: {
-        optional: true,
-        isISO8601: {
-          errorMessage: ADMIN_MESSAGES.INVALID_DATE_FORMAT
-        },
-        custom: {
-          options: (value, { req }) => {
-            if (req?.query?.from_date && value) {
-              const fromDate = new Date(req.query.from_date as string)
-              const toDate = new Date(value)
+/**
+ * Middleware to check if user has admin or teacher role
+ */
+export const isAdminOrTeacherValidator = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { user_id } = req.decode_authorization as TokenPayload
 
-              if (fromDate > toDate) {
-                throw new Error(ADMIN_MESSAGES.TO_DATE_MUST_BE_AFTER_FROM_DATE)
-              }
-            }
-            return true
-          }
-        }
-      }
-    },
-    ['query']
-  )
-)
-export const banUserValidator = validate(
-  checkSchema({
-    user_id: {
-      notEmpty: {
-        errorMessage: ADMIN_MESSAGES.USER_ID_REQUIRED
-      }
-    },
-    reason: {
-      isEmpty: {
-        errorMessage: ADMIN_MESSAGES.REASON_REQUIRED
-      },
-      isString: {
-        errorMessage: ADMIN_MESSAGES.INVALID_REASON
-      }
+    if (!user_id) {
+      return next(
+        new ErrorWithStatus({
+          message: 'Authentication required',
+          status: HTTP_STATUS.UNAUTHORIZED
+        })
+      )
     }
-  })
-)
+
+    // Get user from database to check role
+    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+    if (!user) {
+      return next(
+        new ErrorWithStatus({
+          message: 'User not found',
+          status: HTTP_STATUS.NOT_FOUND
+        })
+      )
+    }
+
+    if (user.role !== UserRole.Admin && user.role !== UserRole.Teacher) {
+      return next(
+        new ErrorWithStatus({
+          message: 'Admin or Teacher permission required',
+          status: HTTP_STATUS.FORBIDDEN
+        })
+      )
+    }
+
+    next()
+  } catch (error) {
+    next(
+      new ErrorWithStatus({
+        message: 'Failed to verify permissions',
+        status: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      })
+    )
+  }
+}
+
+/**
+ * Middleware to allow admin to access any resource or owner to access their own
+ */
+export const isAdminOrOwnerValidator = (userIdField: string = 'user_id') => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { user_id } = req.decode_authorization as TokenPayload
+      const targetUserId = req.params[userIdField] || req.body[userIdField]
+
+      if (!user_id) {
+        return next(
+          new ErrorWithStatus({
+            message: 'Authentication required',
+            status: HTTP_STATUS.UNAUTHORIZED
+          })
+        )
+      }
+
+      // Get user from database to check role
+      const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+
+      if (!user) {
+        return next(
+          new ErrorWithStatus({
+            message: 'User not found',
+            status: HTTP_STATUS.NOT_FOUND
+          })
+        )
+      }
+
+      // Admin can access any resource
+      if (user.role === UserRole.Admin) {
+        return next()
+      }
+
+      // Owner can access their own resource
+      if (targetUserId && user_id === targetUserId) {
+        return next()
+      }
+
+      return next(
+        new ErrorWithStatus({
+          message: 'Access denied. Admin permission or resource ownership required',
+          status: HTTP_STATUS.FORBIDDEN
+        })
+      )
+    } catch (error) {
+      next(
+        new ErrorWithStatus({
+          message: 'Failed to verify permissions',
+          status: HTTP_STATUS.INTERNAL_SERVER_ERROR
+        })
+      )
+    }
+  }
+}
