@@ -1,4 +1,3 @@
-// src/services/embedding.services.ts
 import * as ort from 'onnxruntime-node'
 import sharp from 'sharp'
 import { ObjectId } from 'mongodb'

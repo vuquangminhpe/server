@@ -1,4 +1,3 @@
-// src/services/faceEmbedding.services.ts (Improved)
 import * as ort from 'onnxruntime-node'
 import sharp from 'sharp'
 import { ObjectId } from 'mongodb'
