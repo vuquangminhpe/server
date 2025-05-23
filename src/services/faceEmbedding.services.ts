@@ -16,7 +16,7 @@ interface FaceEmbedding {
 class FaceEmbeddingService {
   private session: ort.InferenceSession | null = null
   private isInitialized = false
-  private readonly SIMILARITY_THRESHOLD = 0.92
+  private readonly SIMILARITY_THRESHOLD = 0.72
   private readonly MODEL_PATH = path.join(process.cwd(), 'src', 'models', 'arcfaceresnet100-11-int8.onnx')
   private initPromise: Promise<void> | null = null
   constructor() {
